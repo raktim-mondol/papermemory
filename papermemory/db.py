@@ -254,11 +254,16 @@ class Store:
         title: str | None = None,
         year: int | None = None,
         fingerprint_value: str | None = None,
+        pdf_path: str | None = None,
     ) -> dict[str, Any] | None:
         doi = normalize_doi(doi)
         arxiv_id = normalize_arxiv(arxiv_id)
         if doi:
             row = self.conn.execute("SELECT * FROM papers WHERE doi=?", (doi,)).fetchone()
+            if row:
+                return dict(row)
+        if pdf_path:
+            row = self.conn.execute("SELECT * FROM papers WHERE pdf_path=?", (str(pdf_path),)).fetchone()
             if row:
                 return dict(row)
         if arxiv_id:
@@ -300,6 +305,7 @@ class Store:
             title=title,
             year=year,
             fingerprint_value=fp,
+            pdf_path=data.get("pdf_path"),
         )
         now = now_iso()
         authors = data.get("authors") or []
@@ -379,6 +385,7 @@ class Store:
                     bibtex_key or "",
                     doi or "",
                     arxiv_id or "",
+                    payload.get("pdf_path") or "",
                     payload.get("abstract") or "",
                 ],
             )

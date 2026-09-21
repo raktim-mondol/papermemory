@@ -53,14 +53,22 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     if args.arxiv:
         rec = ingest_arxiv(store, args.arxiv, project_id=args.project)
         return _emit(rec, args.json, _fmt_paper(rec))
+    if args.path:
+        result = ingest_path(
+            store,
+            Path(args.path),
+            project_id=args.project,
+            kind=args.kind,
+            doi=args.doi,
+            title=args.title,
+            pdf_path=args.pdf_path,
+        )
+        return _emit(result, args.json)
     if args.doi:
         rec = ingest_doi(store, args.doi, project_id=args.project)
         return _emit(rec, args.json, _fmt_paper(rec))
-    if not args.path:
-        print("ingest requires PATH, --arxiv, or --doi", file=sys.stderr)
-        return 2
-    result = ingest_path(store, Path(args.path), project_id=args.project, kind=args.kind)
-    return _emit(result, args.json)
+    print("ingest requires PATH, --arxiv, or --doi", file=sys.stderr)
+    return 2
 
 
 def cmd_search(args: argparse.Namespace) -> int:
@@ -350,6 +358,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("path", nargs="?")
     s.add_argument("--arxiv")
     s.add_argument("--doi")
+    s.add_argument("--title")
+    s.add_argument("--pdf-path", dest="pdf_path", help="attach markdown/tex ingest to an existing PDF record")
     s.add_argument("--project")
     s.add_argument("--kind", default="auto", choices=["auto", "pdf", "bibtex", "markdown", "tex", "dir", "manuscript"])
     s.set_defaults(func=cmd_ingest)

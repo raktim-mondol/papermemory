@@ -9,7 +9,7 @@ from papermemory.citations import extract_cite_keys
 from papermemory.db import Store
 from papermemory.pdf import extract_pdf
 from papermemory.understand import understand_text
-from papermemory.util import slugify, strip_tex_comments, word_count
+from papermemory.util import normalize_doi, slugify, strip_tex_comments, word_count
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", "figures", "qa_crops", "_work"}
 
@@ -34,18 +34,35 @@ def ingest_bibtex(store: Store, text: str, *, project_id: str | None = None, sou
     return papers
 
 
-def ingest_pdf(store: Store, path: Path, *, project_id: str | None = None, understand: bool = True) -> dict[str, Any]:
+def ingest_pdf(
+    store: Store,
+    path: Path,
+    *,
+    project_id: str | None = None,
+    understand: bool = True,
+    doi: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any]:
     extracted = extract_pdf(path)
+    doi_n = normalize_doi(doi)
+    existing = store.find_paper(doi=doi_n, pdf_path=str(path.expanduser().resolve())) if (doi_n or path) else None
+    heading = (title or "").strip()
+    if not heading and existing and existing.get("title"):
+        heading = existing["title"]
+    if not heading:
+        heading = (extracted.get("title") or path.stem).strip()
     paper = store.upsert_paper(
         {
-            "title": extracted["title"],
+            "title": heading,
             "authors": extracted.get("authors") or [],
-            "pdf_path": extracted["pdf_path"],
+            "doi": doi_n,
+            "url": f"https://doi.org/{doi_n}" if doi_n else None,
+            "pdf_path": str(path.expanduser().resolve()),
             "source_type": "pdf",
             "project_id": project_id,
             "abstract": None,
-            "verified": 0,
-            "verification_note": "local-pdf",
+            "verified": 1 if doi_n else 0,
+            "verification_note": "doi" if doi_n else "local-pdf",
         }
     )
     summary = None
@@ -66,22 +83,36 @@ def ingest_pdf(store: Store, path: Path, *, project_id: str | None = None, under
     return {"paper": paper, "understand": summary, "pages": extracted["page_count"]}
 
 
-def ingest_markdown(store: Store, path: Path, *, project_id: str | None = None) -> dict[str, Any]:
+def ingest_markdown(
+    store: Store,
+    path: Path,
+    *,
+    project_id: str | None = None,
+    doi: str | None = None,
+    pdf_path: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8", errors="replace")
-    title = path.stem
-    for line in text.splitlines():
-        if line.startswith("# "):
-            title = line[2:].strip()
-            break
+    heading = title
+    if not heading:
+        heading = path.stem
+        for line in text.splitlines():
+            if line.startswith("# "):
+                heading = line[2:].strip()
+                break
+    doi_n = normalize_doi(doi)
+    resolved_pdf = str(Path(pdf_path).expanduser().resolve()) if pdf_path else None
     paper = store.upsert_paper(
         {
-            "title": title,
+            "title": heading,
+            "doi": doi_n,
+            "url": f"https://doi.org/{doi_n}" if doi_n else None,
+            "pdf_path": resolved_pdf,
             "source_type": "markdown",
-            "url": str(path.resolve()),
             "project_id": project_id,
             "abstract": text[:1500],
-            "verified": 0,
-            "verification_note": "local-note",
+            "verified": 1 if doi_n else 0,
+            "verification_note": "doi" if doi_n else None,
         }
     )
     summary = understand_text(text)
@@ -227,6 +258,9 @@ def ingest_path(
     project_id: str | None = None,
     kind: str = "auto",
     progress: Callable[[str], None] | None = None,
+    doi: str | None = None,
+    title: str | None = None,
+    pdf_path: str | None = None,
 ) -> dict[str, Any]:
     path = path.expanduser().resolve()
     if not path.exists():
@@ -245,14 +279,14 @@ def ingest_path(
     if kind == "manuscript":
         return ingest_manuscript(store, path, slug=project_id)
     if kind == "pdf":
-        return ingest_pdf(store, path, project_id=project_id)
+        return ingest_pdf(store, path, project_id=project_id, doi=doi, title=title)
     if kind == "bibtex":
         papers = ingest_bibtex(store, path.read_text(encoding="utf-8", errors="replace"), project_id=project_id, source=str(path))
         return {"papers": papers, "count": len(papers)}
     if kind == "markdown":
-        return ingest_markdown(store, path, project_id=project_id)
+        return ingest_markdown(store, path, project_id=project_id, doi=doi, pdf_path=pdf_path, title=title)
     if kind == "tex":
-        return ingest_markdown(store, path, project_id=project_id)
+        return ingest_markdown(store, path, project_id=project_id, doi=doi, pdf_path=pdf_path, title=title)
     if kind == "dir":
         results = []
         for child in sorted(path.rglob("*")):

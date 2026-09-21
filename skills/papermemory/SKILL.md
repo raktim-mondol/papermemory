@@ -32,6 +32,8 @@ Slug examples: `scandy` for `~/journal_paper_writing`, `breast-imaging` for `~/b
 | --- | --- |
 | Ingest a manuscript tree | `papermemory ingest PATH --kind manuscript --project SLUG --json` |
 | Ingest PDF / bib / markdown | `papermemory ingest PATH --project SLUG --json` |
+| Ingest a PDF with a DOI (one verified record) | `papermemory ingest PATH --doi DOI --project SLUG --json` |
+| Attach markdown to that PDF | `papermemory ingest notes.md --pdf-path PATH --json` |
 | Ingest arXiv / DOI | `papermemory ingest --arxiv ID --project SLUG --json` / `--doi DOI` |
 | Search | `papermemory search QUERY --json` |
 | Show a paper | `papermemory paper BIBKEY --json` |

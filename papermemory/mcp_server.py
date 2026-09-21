@@ -37,6 +37,8 @@ TOOLS = [
                 "path": {"type": "string"},
                 "arxiv": {"type": "string"},
                 "doi": {"type": "string"},
+                "title": {"type": "string"},
+                "pdf_path": {"type": "string", "description": "Attach markdown ingest to the paper for this PDF path"},
                 "project": {"type": "string"},
                 "kind": {"type": "string"},
             },
@@ -140,11 +142,21 @@ def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name == "papermemory_ingest":
             if args.get("arxiv"):
                 return _ok(ingest_arxiv(store, args["arxiv"], project_id=args.get("project")))
+            if args.get("path"):
+                return _ok(
+                    ingest_path(
+                        store,
+                        Path(args["path"]),
+                        project_id=args.get("project"),
+                        kind=args.get("kind") or "auto",
+                        doi=args.get("doi"),
+                        title=args.get("title"),
+                        pdf_path=args.get("pdf_path"),
+                    )
+                )
             if args.get("doi"):
                 return _ok(ingest_doi(store, args["doi"], project_id=args.get("project")))
-            if not args.get("path"):
-                return _err("path, arxiv, or doi is required")
-            return _ok(ingest_path(store, Path(args["path"]), project_id=args.get("project"), kind=args.get("kind") or "auto"))
+            return _err("path, arxiv, or doi is required")
         if name == "papermemory_get":
             rec = store.get_paper(args["key"])
             if not rec:
@@ -192,19 +204,32 @@ def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:
         store.close()
 
 
+# MCP stdio framing: the current TypeScript SDK (DSH, recent Grok) writes
+# newline-delimited JSON. Older clients use LSP Content-Length headers.
+# Detect from the first inbound message and reply in the same framing.
+_framing = "content-length"
+
+
 def _read_message() -> dict[str, Any] | None:
+    global _framing
+    line = sys.stdin.buffer.readline()
+    if not line:
+        return None
+    if line.lstrip().startswith(b"{"):
+        _framing = "ndjson"
+        return json.loads(line.decode("utf-8"))
+    _framing = "content-length"
     headers: dict[str, str] = {}
     while True:
-        line = sys.stdin.buffer.readline()
-        if not line:
-            return None
         if line in (b"\r\n", b"\n"):
             break
         decoded = line.decode("utf-8")
-        if ":" not in decoded:
-            continue
-        key, value = decoded.split(":", 1)
-        headers[key.strip().lower()] = value.strip()
+        if ":" in decoded:
+            key, value = decoded.split(":", 1)
+            headers[key.strip().lower()] = value.strip()
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
     length = int(headers.get("content-length") or 0)
     if length <= 0:
         return None
@@ -216,7 +241,10 @@ def _read_message() -> dict[str, Any] | None:
 
 def _write_message(payload: dict[str, Any]) -> None:
     blob = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    sys.stdout.buffer.write(f"Content-Length: {len(blob)}\r\n\r\n".encode("ascii") + blob)
+    if _framing == "ndjson":
+        sys.stdout.buffer.write(blob + b"\n")
+    else:
+        sys.stdout.buffer.write(f"Content-Length: {len(blob)}\r\n\r\n".encode("ascii") + blob)
     sys.stdout.buffer.flush()
 
 
