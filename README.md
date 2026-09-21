@@ -4,7 +4,6 @@
 [![Release](https://img.shields.io/github/v/release/raktim-mondol/papermemory)](https://github.com/raktim-mondol/papermemory/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Wiki](https://img.shields.io/badge/docs-wiki-blue)](https://github.com/raktim-mondol/papermemory/wiki)
 
 Persistent memory for **academic paper understanding** and **academic paper writing**.
 
