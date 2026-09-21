@@ -92,4 +92,4 @@ Use agentmemory for coding sessions. Use PaperMemory for papers. They can coexis
 
 ## Docs
 
-Full guides: [Wiki](https://github.com/raktim-mondol/papermemory/wiki) ([source](wiki/README.md)) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/raktim-mondol/papermemory/releases)
+[Changelog](CHANGELOG.md) · [Releases](https://github.com/raktim-mondol/papermemory/releases)
