@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-10-22
+
+- `papermemory ingest --cwd PATH` resolves the project from the workspace: explicit project → nearest `ah.yaml` ancestor → manuscript `root_path` → `unassigned`.
+- Explicit `--project` values are slugified (`"My Paper"` → `my-paper`) and win over `--cwd`.
+- MCP `papermemory_ingest` accepts `cwd` and resolves the same way.
+- Auto-ingest callers pass the workspace `cwd`; `PAPERMEMORY_PROJECT` remains the explicit override.
+- Added CLI/MCP project-resolution tests (`tests/test_scope_wiring.py`).
+
 ## 0.1.1 — 2026-09-21
 
 - MCP stdio auto-detects newline-delimited JSON (current TypeScript MCP SDK, DeepSeek Harness, Grok) and LSP `Content-Length` headers.
