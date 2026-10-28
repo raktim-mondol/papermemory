@@ -117,8 +117,8 @@ def test_legacy_parse_bibtex_shape_is_preserved():
 
 RIS_ZOTERO = """﻿TY  - JOUR\r\nAU  - Dawood, Muhammad\r\nAU  - Rajpoot, Nasir\r\nPY  - 2026\r\nDA  - 2026/03/02\r\nTI  - Confounding factors\r\nJO  - Nature Biomedical Engineering\r\nAB  - First line\r\n    continued line\r\nSN  - 2157-846X\r\nUR  - https://doi.org/10.1038/s41551-026-01616-8\r\nID  - Dawood2026\r\nER  - \r\n"""
 
-# Synthetic Scopus- and Web of Science-style exports (replace with real exports when available).
-RIS_SCOPUS = """TY  - JOUR
+# Synthetic publisher-style exports written from the RIS tag set (not copies of any vendor's file).
+RIS_PUBLISHER = """TY  - JOUR
 AU  - Smith, J.
 AU  - Lee, K.
 TI  - Deep learning for X
@@ -129,14 +129,14 @@ IS  - 3
 SP  - 100
 EP  - 110
 DO  - 10.1000/xyz123
-UR  - https://www.scopus.com/inward/record.uri?eid=2-s2.0-1
+UR  - https://publisher.example/record/1
 AB  - Abstract text.
 KW  - alpha
 KW  - beta
 N1  - Cited By: 4
 ER  -
 """
-RIS_WOS = """TY  - CONF
+RIS_CONFERENCE = """TY  - CONF
 TI  - A conference paper
 T2  - Proc. of Z
 AU  - Wu, H
@@ -161,22 +161,22 @@ def test_ris_zotero_style():
     assert record.entry_type == "article"
 
 
-def test_ris_scopus_style_pages_keywords_and_numeric_ids():
-    (record,), _ = parse_ris(RIS_SCOPUS)
+def test_ris_publisher_style_pages_keywords_and_no_usable_id():
+    (record,), _ = parse_ris(RIS_PUBLISHER)
     assert record.csl["page"] == "100–110" and record.csl["issue"] == "3" and record.csl["volume"] == "12"
     assert record.csl["container-title"] == "Journal of Y"
     assert record.csl["keyword"] == "alpha, beta"
-    assert record.csl["URL"].startswith("https://www.scopus.com")
+    assert record.csl["URL"].startswith("https://publisher.example")
     assert record.source_key is None
 
 
-def test_ris_wos_style_conference_isbn_and_accession():
-    (record,), _ = parse_ris(RIS_WOS)
+def test_ris_conference_isbn_and_accession():
+    (record,), _ = parse_ris(RIS_CONFERENCE)
     assert record.entry_type == "inproceedings" and record.csl["type"] == "paper-conference"
     assert record.csl["ISBN"] == "978-1-4503-1234-5"
     assert record.extra["accession"] == "WOS:000123456700001"
 
 
 def test_ris_multiple_records_and_missing_er():
-    records, errors = parse_ris(RIS_SCOPUS + RIS_WOS.replace("ER  -\n", ""))
+    records, errors = parse_ris(RIS_PUBLISHER + RIS_CONFERENCE.replace("ER  -\n", ""))
     assert len(records) == 2 and not errors

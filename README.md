@@ -89,7 +89,7 @@ PaperMemory keeps a lossless bibliographic record for every paper, so a referenc
 ```bash
 papermemory migrate                                   # once: schema 2000 -> 2100 (back up first: papermemory backup)
 papermemory library import refs.bib --project thesis  # BibTeX / BibLaTeX
-papermemory library import export.ris                 # RIS (Zotero, EndNote, Scopus, Web of Science, publishers)
+papermemory library import export.ris                 # RIS (Zotero, EndNote, publisher exports)
 papermemory library import items.json                 # CSL-JSON
 papermemory library import refs.bib --dry-run         # report only, write nothing
 papermemory library get smith2020 --project thesis    # lossless record, key, and aliases
