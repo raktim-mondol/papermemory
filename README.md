@@ -101,6 +101,25 @@ papermemory library get smith2020 --project thesis    # lossless record, key, an
 - **Idempotent.** Re-importing a file merges by DOI / arXiv / PMID / title+year and never overwrites richer stored metadata.
 - Existing `papers.bibtex_key` values are never changed by the migration.
 
+### Tags, collections, notes, and queries
+
+```bash
+papermemory library tag add "ml,to-read" smith2020 lee2021       # tags are lower-cased and hyphenated
+papermemory library tag list year:2020..                         # tags with counts, within a filter
+papermemory library collection create thesis --title "Thesis refs" --project thesis --bib-path references.bib
+papermemory library collection create chapter-1 --parent thesis  # one level of nesting
+papermemory library collection add chapter-1 smith2020 lee2021
+papermemory library collection reorder chapter-1 lee2021         # listed papers first, the rest keep their order
+papermemory library collection show thesis                       # includes papers of child collections in filters
+papermemory library note add smith2020 "Baseline is in section 4"
+papermemory library note edit NOTE_ID "..."                      # the old text is kept, marked superseded
+papermemory library list tag:ml year:2020..2024 has:pdf '!tag:skip' graph --sort year --desc --limit 20
+```
+
+Filters: `tag: collection: project: year:(2021 | 2020..2024 | 2020.. | ..2019) author: venue: title: key: doi: arxiv: has:(pdf|fulltext|doi|abstract|notes|key|tags) verified:(yes|no) integrity:(status|unchecked)`; plain words must all appear in the title, abstract, authors, venue, DOI, key, tags, or notes. `-` or `!` negates a filter (use `!` on the command line). An unknown field is an error, never a silent no-op. Results are keyset-paged with `total_count` and `--cursor`; `--sort added|year|title|key`.
+
+Deleting a collection or a tag never deletes a paper. Tags and notes are searched by `papermemory search --kind paper`. All edits are audited (`papermemory log`).
+
 ### Citation keys
 
 ```bash

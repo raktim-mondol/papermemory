@@ -177,6 +177,117 @@ def cmd_library_keys(args: argparse.Namespace) -> int:
         return 2
 
 
+def _split_csv(values: list[str]) -> list[str]:
+    return [part.strip() for value in values for part in value.split(",") if part.strip()]
+
+
+def _paper_line(row: dict[str, Any]) -> str:
+    who = ", ".join(row["authors"][:2]) + (" et al." if len(row["authors"]) > 2 else "")
+    extras = " ".join(
+        part for part in (
+            f"#{','.join(row['tags'])}" if row["tags"] else "",
+            f"[{','.join(row['collections'])}]" if row["collections"] else "",
+            f"notes:{row['notes']}" if row["notes"] else "",
+            f"integrity:{row['integrity']}" if row["integrity"] else "",
+        ) if part
+    )
+    return f"{row['key'] or '-':<28} {row['year'] or '?'}  {row['title'][:70]}  ({who}) {extras}".rstrip()
+
+
+def cmd_library_list(args: argparse.Namespace) -> int:
+    from papermemory.library_query import QueryError, list_papers
+
+    store = _store()
+    try:
+        result = list_papers(store, args.query, sort=args.sort, desc=args.desc, limit=args.limit, cursor=args.cursor)
+    except QueryError as exc:
+        print(f"library list: {exc}", file=sys.stderr)
+        return 2
+    lines = [f"{result['total_count']} paper(s)"] + [_paper_line(r) for r in result["rows"]]
+    if result["next_cursor"]:
+        lines.append(f"more: --cursor {result['next_cursor']}")
+    return _emit(result, args.json, "\n".join(lines))
+
+
+def cmd_library_tag(args: argparse.Namespace) -> int:
+    from papermemory import library_org
+    from papermemory.library_query import QueryError, tag_counts
+
+    store = _store()
+    try:
+        project = _library_project(args, store)
+        if args.tag_cmd == "list":
+            rows = tag_counts(store, args.query)
+            return _emit(rows, args.json, "\n".join(f"{r['papers']:>5}  {r['tag']}" for r in rows) or "no tags")
+        tags = _split_csv(args.tags)
+        action = library_org.add_tags if args.tag_cmd == "add" else library_org.remove_tags
+        result = action(store, args.refs, tags, project_id=project)
+        verb = "added" if args.tag_cmd == "add" else "removed"
+        return _emit(result, args.json, f"{verb} {result.get('added', result.get('removed'))} tag assignment(s) on {result['papers']} paper(s)")
+    except (library_org.OrgError, QueryError) as exc:
+        print(f"library tag: {getattr(exc, 'code', 'error')}: {exc}", file=sys.stderr)
+        return 2
+
+
+def cmd_library_collection(args: argparse.Namespace) -> int:
+    from papermemory import library_org
+
+    store = _store()
+    try:
+        project = _library_project(args, store) if args.collection_cmd in {"add", "remove", "reorder"} else None
+        cmd = args.collection_cmd
+        if cmd == "create":
+            result = library_org.create_collection(
+                store, args.slug, title=args.title, parent=args.parent, project=args.project, bib_path=args.bib_path
+            )
+            return _emit(result, args.json, f"created collection {result['slug']}")
+        if cmd == "list":
+            rows = library_org.list_collections(store)
+            text = "\n".join(
+                f"{r['slug']:<24} {r['papers']:>4} paper(s)" + (f"  in {r['parent']}" if r["parent"] else "")
+                + (f"  -> project {r['project']}" if r["project"] else "") for r in rows
+            ) or "no collections"
+            return _emit(rows, args.json, text)
+        if cmd == "show":
+            result = library_org.show_collection(store, args.slug, limit=args.limit, offset=args.offset)
+            text = f"{result['slug']}: {result['total_count']} paper(s)\n" + "\n".join(
+                f"{r['position']:>4}  {r['key'] or '-':<28} {r['year'] or '?'}  {r['title'][:70]}" for r in result["papers"]
+            )
+            return _emit(result, args.json, text)
+        if cmd == "delete":
+            result = library_org.delete_collection(store, args.slug)
+            return _emit(result, args.json, f"deleted {result['deleted']} ({result['memberships_removed']} membership(s); no papers deleted)")
+        action = {"add": library_org.add_to_collection, "remove": library_org.remove_from_collection,
+                  "reorder": library_org.reorder_collection}[cmd]
+        result = action(store, args.slug, args.refs, project_id=project)
+        return _emit(result, args.json, f"{cmd}: {json.dumps({k: v for k, v in result.items() if k != 'collection'})} in {result['collection']}")
+    except library_org.OrgError as exc:
+        print(f"library collection: {exc.code}: {exc}", file=sys.stderr)
+        return 2
+
+
+def cmd_library_note(args: argparse.Namespace) -> int:
+    from papermemory import library_org
+
+    store = _store()
+    try:
+        cmd = args.note_cmd
+        if cmd == "add":
+            result = library_org.add_note(store, args.ref, args.text, project_id=_library_project(args, store))
+            return _emit(result, args.json, f"note {result['note_id']} added")
+        if cmd == "list":
+            rows = library_org.list_notes(store, args.ref, project_id=_library_project(args, store))
+            return _emit(rows, args.json, "\n".join(f"{r['id']}  {r['content']}" for r in rows) or "no notes")
+        if cmd == "edit":
+            result = library_org.edit_note(store, args.note_id, args.text)
+            return _emit(result, args.json, f"note {result['replaced']} replaced by {result['note_id']}")
+        result = library_org.remove_note(store, args.note_id)
+        return _emit(result, args.json, f"note {result['removed']} removed")
+    except library_org.OrgError as exc:
+        print(f"library note: {exc.code}: {exc}", file=sys.stderr)
+        return 2
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     from papermemory.search import search
 
@@ -767,6 +878,80 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--project")
     s.add_argument("--cwd")
     s.set_defaults(func=cmd_library_get)
+
+    s = lib_sub.add_parser("list", help="list library papers with filters: tag:ml year:2020..2024 has:pdf !tag:skip words", parents=[shared])
+    s.add_argument("query", nargs="*")
+    s.add_argument("--sort", choices=["added", "year", "title", "key"], default="added")
+    s.add_argument("--desc", action="store_true")
+    s.add_argument("--limit", type=int, default=50)
+    s.add_argument("--cursor")
+    s.set_defaults(func=cmd_library_list)
+
+    s = lib_sub.add_parser("tag", help="tags: add, remove, list", parents=[shared])
+    tag_sub = s.add_subparsers(dest="tag_cmd", required=True)
+    t = tag_sub.add_parser("add", parents=[shared])
+    t.add_argument("tags", nargs=1, help="comma-separated tags")
+    t.add_argument("refs", nargs="+", help="keys, ids, or DOIs")
+    t.add_argument("--project")
+    t.add_argument("--cwd")
+    t.set_defaults(func=cmd_library_tag)
+    t = tag_sub.add_parser("remove", parents=[shared])
+    t.add_argument("tags", nargs=1, help="comma-separated tags")
+    t.add_argument("refs", nargs="+")
+    t.add_argument("--project")
+    t.add_argument("--cwd")
+    t.set_defaults(func=cmd_library_tag)
+    t = tag_sub.add_parser("list", help="tags with paper counts, optionally within a filter", parents=[shared])
+    t.add_argument("query", nargs="*")
+    t.set_defaults(func=cmd_library_tag)
+
+    s = lib_sub.add_parser("collection", help="collections: create, list, show, add, remove, reorder, delete", parents=[shared])
+    col_sub = s.add_subparsers(dest="collection_cmd", required=True)
+    c = col_sub.add_parser("create", parents=[shared])
+    c.add_argument("slug")
+    c.add_argument("--title")
+    c.add_argument("--parent", help="one level of nesting")
+    c.add_argument("--project", help="bind to a project")
+    c.add_argument("--bib-path", help="the project .bib this collection feeds (used by export)")
+    c.set_defaults(func=cmd_library_collection)
+    c = col_sub.add_parser("list", parents=[shared])
+    c.set_defaults(func=cmd_library_collection)
+    c = col_sub.add_parser("show", parents=[shared])
+    c.add_argument("slug")
+    c.add_argument("--limit", type=int, default=50)
+    c.add_argument("--offset", type=int, default=0)
+    c.set_defaults(func=cmd_library_collection)
+    for name in ("add", "remove", "reorder"):
+        c = col_sub.add_parser(name, parents=[shared])
+        c.add_argument("slug")
+        c.add_argument("refs", nargs="+")
+        c.add_argument("--project")
+        c.add_argument("--cwd")
+        c.set_defaults(func=cmd_library_collection)
+    c = col_sub.add_parser("delete", help="delete the collection, never its papers", parents=[shared])
+    c.add_argument("slug")
+    c.set_defaults(func=cmd_library_collection)
+
+    s = lib_sub.add_parser("note", help="per-paper notes: add, list, edit, remove", parents=[shared])
+    note_sub = s.add_subparsers(dest="note_cmd", required=True)
+    n = note_sub.add_parser("add", parents=[shared])
+    n.add_argument("ref")
+    n.add_argument("text")
+    n.add_argument("--project")
+    n.add_argument("--cwd")
+    n.set_defaults(func=cmd_library_note)
+    n = note_sub.add_parser("list", parents=[shared])
+    n.add_argument("ref")
+    n.add_argument("--project")
+    n.add_argument("--cwd")
+    n.set_defaults(func=cmd_library_note)
+    n = note_sub.add_parser("edit", help="replace a note (the old text is kept, marked superseded)", parents=[shared])
+    n.add_argument("note_id")
+    n.add_argument("text")
+    n.set_defaults(func=cmd_library_note)
+    n = note_sub.add_parser("remove", parents=[shared])
+    n.add_argument("note_id")
+    n.set_defaults(func=cmd_library_note)
 
     s = lib_sub.add_parser("keys", help="citation keys: check, assign, freeze, rekey", parents=[shared])
     keys_sub = s.add_subparsers(dest="keys_cmd", required=True)

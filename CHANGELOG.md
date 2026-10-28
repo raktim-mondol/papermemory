@@ -13,6 +13,7 @@ Reference library, phase 1 (lossless records and import). Schema 2000 → 2100; 
 - JSONL export/restore include the new tables (`pm-2.1`; `pm-2` exports still restore).
 - `.ris` files are recognised by `ingest`.
 - Reference library, phase 2 (citation keys): `library keys check|assign|freeze|rekey`. Key template (`{family}{year}{titleword}` default; `{doi}` and `{arxiv}` tokens; `PAPERMEMORY_KEY_TEMPLATE`), BibTeX-safe cleanup, DOI/arXiv fallback for records with no author or year. Keys are set once; `freeze` records that a key is relied on; `rekey` is a dry run unless `--apply` with a reason, lists the manuscripts that cite the old key, and keeps it as a library-wide alias that `cite-check` resolves. New audit ops `KEY_FREEZE` and `KEY_RENAME`.
+- Reference library, phase 3 (organisation and query): tags, collections (one level of nesting, optional project and `.bib` binding, ordered), per-paper notes (paper-scoped observations; edits keep the old text), a filter syntax with an unknown-field error, and `library list` with keyset paging, sorting, and `total_count`. Tags and notes are included in paper search. `merge_papers` keeps tags and collection membership. New CLI: `library list|tag|collection|note`.
 
 ## 0.2.1 — 2026-10-22
 
