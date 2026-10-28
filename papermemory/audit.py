@@ -26,6 +26,8 @@ EVENT_OPS = frozenset(
         "LIBRARY_IMPORT",
         "LIBRARY_WRITE",
         "KEY_ASSIGN",
+        "KEY_FREEZE",
+        "KEY_RENAME",
     }
 )
 

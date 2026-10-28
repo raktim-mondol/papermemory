@@ -92,7 +92,7 @@ def _import_one(store: Store, record: Record, project_id: str | None, source: st
         record.fmt == "bibtex" and record.source_key) else None
     policy = "imported"
     if not wanted:
-        wanted, policy = make_key(record.csl), "generated"
+        wanted, policy = make_key(record.csl, record.extra), "generated"
     key, created = assign_key(conn, paper_id, wanted, policy=policy)
     conn.execute("UPDATE papers SET bibtex_key=? WHERE id=? AND (bibtex_key IS NULL OR bibtex_key='')", (key, paper_id))
     collision = None
@@ -168,8 +168,8 @@ def import_text(
     return report
 
 
-def get_entry(store: Store, ref: str, *, project_id: str | None = None) -> dict[str, Any] | None:
-    """Look up a paper by project key, library key, any alias, paper id, or DOI, with its lossless record."""
+def resolve_paper_id(store: Store, ref: str, *, project_id: str | None = None) -> str | None:
+    """Paper id for a project key, library key, any alias, paper id, or DOI."""
     conn = store.conn
     paper_id = None
     # Inside a project, that project's own key wins: two projects may use one
@@ -191,6 +191,13 @@ def get_entry(store: Store, ref: str, *, project_id: str | None = None) -> dict[
     if paper_id is None and normalize_doi(ref):
         found = conn.execute("SELECT id FROM papers WHERE doi=?", (normalize_doi(ref),)).fetchone()
         paper_id = found["id"] if found else None
+    return paper_id
+
+
+def get_entry(store: Store, ref: str, *, project_id: str | None = None) -> dict[str, Any] | None:
+    """A paper with its lossless record, key, and aliases; None if ``ref`` names nothing."""
+    conn = store.conn
+    paper_id = resolve_paper_id(store, ref, project_id=project_id)
     if paper_id is None:
         return None
     paper = store.get_paper(paper_id)

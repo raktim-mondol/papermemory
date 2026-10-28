@@ -101,6 +101,20 @@ papermemory library get smith2020 --project thesis    # lossless record, key, an
 - **Idempotent.** Re-importing a file merges by DOI / arXiv / PMID / title+year and never overwrites richer stored metadata.
 - Existing `papers.bibtex_key` values are never changed by the migration.
 
+### Citation keys
+
+```bash
+papermemory library keys check                         # report problems; changes nothing
+papermemory library keys assign                        # give every paper without a key one
+papermemory library keys freeze smith2020 --label export:references.bib
+papermemory library keys rekey smith2020 --to smith2020gnn            # dry run: shows manuscripts that cite it
+papermemory library keys rekey smith2020 --to smith2020gnn --apply --reason "clearer name"
+```
+
+- **Template.** Default `{family}{year}{titleword}` (same as the Academic Harness `citation` tool). Tokens: `{family} {year} {titleword} {doi} {arxiv}`. Set `PAPERMEMORY_KEY_TEMPLATE` or pass `--template`. A record with neither author nor year falls back to its DOI, then its arXiv id. Keys are ASCII, safe for BibTeX, and never start with a digit.
+- **Stable.** A key is set once and never changes by itself; keys from your files are kept as written. `freeze` marks a key as relied on (exports do this automatically). Only `rekey` changes a key, needs a reason, and keeps the old key as a library-wide alias so manuscripts that still cite it keep resolving in `cite-check`.
+- **Honest checks.** `keys check` reports missing keys, unsafe characters (spaces, commas, non-ASCII), mismatches with `papers.bibtex_key`, template drift on *generated* keys only (imported keys are never "drift"), and project aliases that shadow another paper's key.
+
 ## Citation rules (non-negotiable)
 
 1. Only cite papers that are in PaperMemory.

@@ -137,6 +137,46 @@ def cmd_library_get(args: argparse.Namespace) -> int:
     return _emit(entry, args.json)
 
 
+def cmd_library_keys(args: argparse.Namespace) -> int:
+    from papermemory import library_keys
+    from papermemory.bibkeys import TemplateError
+
+    store = _store()
+    project = _library_project(args, store)
+    try:
+        if args.keys_cmd == "check":
+            report = library_keys.check(store, template=args.template)
+            s = report["summary"]
+            lines = [
+                f"{s['keys']} keys ({s['frozen']} frozen), template {s['template']}: "
+                + ("ok" if s["ok"] else "problems found")
+            ]
+            for name, count in s["problems"].items():
+                if count:
+                    lines.append(f"  {name}: {count}")
+            return _emit(report, args.json, "\n".join(lines))
+        if args.keys_cmd == "assign":
+            result = library_keys.assign_missing(store, template=args.template)
+            return _emit(result, args.json, f"assigned {result['assigned']} key(s) with template {result['template']}")
+        if args.keys_cmd == "freeze":
+            result = library_keys.freeze(store, args.ref, args.label, project_id=project)
+            return _emit(result, args.json, f"{result['key']}: " + ("frozen" if result["changed"] else "already frozen"))
+        result = library_keys.rekey(
+            store, args.ref, to=args.to, template=args.template, reason=args.reason or "",
+            apply=args.apply, project_id=project,
+        )
+        if not result["changed"]:
+            return _emit(result, args.json, f"{result['old_key']}: already the key; nothing to do")
+        affected = result.get("affected_manuscripts", [])
+        text = f"{result['old_key']} -> {result['new_key']}: " + ("applied" if result["applied"] else "dry run (add --apply --reason ...)")
+        for item in affected:
+            text += f"\n  cited by {item['manuscript']} ({item['citations']} place(s)); the old key keeps resolving as an alias"
+        return _emit(result, args.json, text)
+    except (library_keys.KeyOperationError, TemplateError) as exc:
+        print(f"library keys: {getattr(exc, 'code', 'error')}: {exc}", file=sys.stderr)
+        return 2
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     from papermemory.search import search
 
@@ -727,6 +767,30 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--project")
     s.add_argument("--cwd")
     s.set_defaults(func=cmd_library_get)
+
+    s = lib_sub.add_parser("keys", help="citation keys: check, assign, freeze, rekey", parents=[shared])
+    keys_sub = s.add_subparsers(dest="keys_cmd", required=True)
+    k = keys_sub.add_parser("check", help="report key problems (changes nothing)", parents=[shared])
+    k.add_argument("--template")
+    k.set_defaults(func=cmd_library_keys)
+    k = keys_sub.add_parser("assign", help="give every paper without a key one", parents=[shared])
+    k.add_argument("--template")
+    k.set_defaults(func=cmd_library_keys)
+    k = keys_sub.add_parser("freeze", help="mark a key as relied on; it can then change only through rekey", parents=[shared])
+    k.add_argument("ref")
+    k.add_argument("--label", required=True, help="where the key is used, e.g. export:references.bib")
+    k.add_argument("--project")
+    k.add_argument("--cwd")
+    k.set_defaults(func=cmd_library_keys)
+    k = keys_sub.add_parser("rekey", help="change a key (dry run unless --apply); the old key stays as an alias", parents=[shared])
+    k.add_argument("ref")
+    k.add_argument("--to", help="the new key (default: render from the template)")
+    k.add_argument("--template")
+    k.add_argument("--reason")
+    k.add_argument("--apply", action="store_true")
+    k.add_argument("--project")
+    k.add_argument("--cwd")
+    k.set_defaults(func=cmd_library_keys)
 
     ms = sub.add_parser("manuscript", help="writing-project commands", parents=[shared])
     ms_sub = ms.add_subparsers(dest="ms_cmd", required=True)
