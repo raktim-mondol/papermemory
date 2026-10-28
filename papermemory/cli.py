@@ -82,6 +82,61 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 2
 
 
+def _library_project(args: argparse.Namespace, store: Store) -> str | None:
+    from papermemory.scope import canonical_project_slug
+
+    cwd = getattr(args, "cwd", None)
+    if not (getattr(args, "project", None) or cwd):
+        return None
+    anchor = Path(cwd) if cwd else Path.cwd()
+    return canonical_project_slug(anchor, project=args.project, store=store)
+
+
+def cmd_library_import(args: argparse.Namespace) -> int:
+    from papermemory.library import LibraryError, import_text
+
+    store = _store()
+    try:
+        if args.path == "-":
+            text, label = sys.stdin.read(), None
+        else:
+            source = Path(args.path).expanduser()
+            text, label = source.read_text(encoding="utf-8", errors="replace"), str(source)
+        report = import_text(
+            store, text, fmt=args.format, path=label, project_id=_library_project(args, store),
+            batch_size=args.batch_size, dry_run=args.dry_run,
+        )
+    except (LibraryError, OSError) as exc:
+        print(f"library import: {exc}", file=sys.stderr)
+        return 2
+    c = report["counts"]
+    lines = [
+        f"{'would import' if report['dry_run'] else 'imported'} {report['format']}: "
+        f"{c['added']} added, {c['merged']} merged, {c['failed']} failed, {c['parse_errors']} parse problems"
+    ]
+    for entry in report["entries"]:
+        if entry["status"] == "failed":
+            lines.append(f"  ! {entry.get('source_key')}: {entry.get('reason')}")
+        elif entry.get("key_collision"):
+            lines.append(f"  ! key {entry['key_collision']} already names another paper; stored as {entry['key']}")
+        elif entry.get("alias_conflict"):
+            lines.append(f"  ! key {entry['alias_conflict']} is used twice in this project for different papers")
+    for error in report["parse_errors"][:20]:
+        lines.append(f"  ! line {error.get('line')}: {error['message']} ({error.get('key')})")
+    return _emit(report, args.json, "\n".join(lines))
+
+
+def cmd_library_get(args: argparse.Namespace) -> int:
+    from papermemory.library import get_entry
+
+    store = _store()
+    entry = get_entry(store, args.ref, project_id=_library_project(args, store))
+    if entry is None:
+        print(f"library get: nothing found for {args.ref!r}", file=sys.stderr)
+        return 1
+    return _emit(entry, args.json)
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     from papermemory.search import search
 
@@ -656,6 +711,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--status", default="extracted")
     s.add_argument("--confidence", type=float, default=0.5)
     s.set_defaults(func=cmd_claim)
+
+    lib = sub.add_parser("library", help="reference library: import and look up records", parents=[shared])
+    lib_sub = lib.add_subparsers(dest="lib_cmd", required=True)
+    s = lib_sub.add_parser("import", help="import BibTeX/BibLaTeX, RIS, or CSL-JSON (PATH or - for stdin)", parents=[shared])
+    s.add_argument("path")
+    s.add_argument("--format", choices=["auto", "bibtex", "ris", "csl-json"], default="auto")
+    s.add_argument("--project")
+    s.add_argument("--cwd", help="resolve the project from this workspace directory")
+    s.add_argument("--batch-size", type=int, default=200)
+    s.add_argument("--dry-run", action="store_true", help="report what would change and write nothing")
+    s.set_defaults(func=cmd_library_import)
+    s = lib_sub.add_parser("get", help="show a paper's lossless record by key, alias, id, or DOI", parents=[shared])
+    s.add_argument("ref")
+    s.add_argument("--project")
+    s.add_argument("--cwd")
+    s.set_defaults(func=cmd_library_get)
 
     ms = sub.add_parser("manuscript", help="writing-project commands", parents=[shared])
     ms_sub = ms.add_subparsers(dest="ms_cmd", required=True)

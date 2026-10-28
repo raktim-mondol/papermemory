@@ -24,7 +24,7 @@ def _md(tmp_path, name: str, body: str, fm: str = "") -> object:
 
 def test_fresh_store_is_v2(tmp_path):
     store = _store(tmp_path)
-    assert store.conn.execute("PRAGMA user_version").fetchone()[0] == 2000
+    assert store.conn.execute("PRAGMA user_version").fetchone()[0] == 2100
     columns = {row["name"] for row in store.conn.execute("PRAGMA table_info(chunks)")}
     assert "text" not in columns
     assert {"byte_start", "byte_end", "slice_sha256", "source_sha256"} <= columns
@@ -265,8 +265,8 @@ def test_migration_2000_quarantines_legacy(tmp_path):
     finally:
         pass
     result = migrate(store)
-    assert result["user_version"] == 2000
-    assert store.conn.execute("PRAGMA user_version").fetchone()[0] == 2000
+    assert result["user_version"] == 2100
+    assert store.conn.execute("PRAGMA user_version").fetchone()[0] == 2100
     assert store.conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0] == 2
     assert store.conn.execute("SELECT COUNT(*) FROM paper_projects").fetchone()[0] >= 1
     assert store.conn.execute("SELECT COUNT(*) FROM legacy_chunks").fetchone()[0] == 1
@@ -277,7 +277,7 @@ def test_migration_2000_quarantines_legacy(tmp_path):
     assert migrate(store)["changed"] is False
     store.close()
     reopened = Store(path)
-    assert reopened.conn.execute("PRAGMA user_version").fetchone()[0] == 2000
+    assert reopened.conn.execute("PRAGMA user_version").fetchone()[0] == 2100
     reopened.close()
 
 
@@ -288,7 +288,7 @@ def test_migrate_cli_and_doctor(tmp_path):
     store._connect_raw(path)
     migrate(store)
     report = doctor_schema(store)
-    assert report["user_version"] == 2000
+    assert report["user_version"] == 2100
     store.close()
 
 

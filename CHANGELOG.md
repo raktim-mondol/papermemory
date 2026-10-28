@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased (0.3.0, in progress)
+
+Reference library, phase 1 (lossless records and import). Schema 2000 → 2100; run `papermemory migrate` (back up first).
+
+- New additive tables: `reference_meta`, `bib_keys`, `bib_key_aliases`, `paper_tags`, `collections`, `collection_papers`, `integrity`. `papers` is not altered, and existing `bibtex_key` values are never changed. Existing papers are backfilled.
+- New tolerant BibTeX/BibLaTeX parser (`bibparse.py`): `@string` macros, `#` concatenation, `()` entries, escaped quotes, month macros, braced corporate authors, duplicate fields. **Fixes silent data loss:** an entry with a missing closing brace used to swallow the next entry (and give it the wrong title); it is now reported and recovered.
+- RIS (`ris.py`) and CSL-JSON (`csl_import.py`) readers. `papermemory library import PATH|-` with `--format`, `--project`, `--cwd`, `--dry-run`, `--batch-size`; `papermemory library get REF`.
+- Imports are lossless (CSL-JSON plus every unmapped field under its original name, plus the verbatim BibTeX entry), idempotent, batched, and never abort on one bad entry.
+- Library-wide unique citation keys; a key owned by a different paper gets a letter suffix; the key a project used is stored as a project alias. `cite-check` resolves project aliases.
+- `merge_papers` carries library rows (record, keys, aliases, tags, collections, integrity) to the surviving paper.
+- JSONL export/restore include the new tables (`pm-2.1`; `pm-2` exports still restore).
+- `.ris` files are recognised by `ingest`.
+
 ## 0.2.1 — 2026-10-22
 
 - `papermemory ingest --cwd PATH` resolves the project from the workspace: explicit project → nearest `ah.yaml` ancestor → manuscript `root_path` → `unassigned`.

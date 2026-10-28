@@ -82,6 +82,25 @@ Tools: `papermemory_search`, `papermemory_ingest`, `papermemory_get`, `papermemo
 
 `papermemory_ingest` accepts `path` together with `doi` / `title` / `pdf_path` so a local PDF and a later markdown conversion merge onto one verified record.
 
+## Reference library (unreleased, schema 2100)
+
+PaperMemory keeps a lossless bibliographic record for every paper, so a reference can be stored, cited, and later exported without losing fields.
+
+```bash
+papermemory migrate                                   # once: schema 2000 -> 2100 (back up first: papermemory backup)
+papermemory library import refs.bib --project thesis  # BibTeX / BibLaTeX
+papermemory library import export.ris                 # RIS (Zotero, EndNote, Scopus, Web of Science, publishers)
+papermemory library import items.json                 # CSL-JSON
+papermemory library import refs.bib --dry-run         # report only, write nothing
+papermemory library get smith2020 --project thesis    # lossless record, key, and aliases
+```
+
+- **Lossless.** `reference_meta` holds CSL-JSON plus every field CSL has no home for, under its original name (`mrnumber`, `eprint`, `pdf`, ...), and the original BibTeX entry verbatim.
+- **Tolerant parser.** `@string` macros, `#` concatenation, `{}` and `()` entries, quoted values, month macros, and braced corporate authors. An entry missing its closing brace is reported and recovered; it never swallows the next entry.
+- **Library-wide unique keys.** Keys from your files are kept as written. If a *different* paper already owns the key, the newcomer gets a letter suffix, and the key your project used is recorded as a project alias so `cite-check` still resolves it.
+- **Idempotent.** Re-importing a file merges by DOI / arXiv / PMID / title+year and never overwrites richer stored metadata.
+- Existing `papers.bibtex_key` values are never changed by the migration.
+
 ## Citation rules (non-negotiable)
 
 1. Only cite papers that are in PaperMemory.
