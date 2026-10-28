@@ -1,7 +1,7 @@
 """RIS reader (stdlib only).
 
-Handles the dialects seen in practice: Zotero/EndNote/publisher exports and the
-Scopus and Web of Science variants. Repeated tags, wrapped continuation lines,
+Handles the common RIS variants: Zotero/EndNote-style and generic publisher exports.
+Repeated tags, wrapped continuation lines,
 CRLF line endings, a leading BOM, tag aliases (``T1``/``TI``, ``A1``/``AU``,
 ``JO``/``JF``/``JA``/``J2``), and ``DA``/``PY`` dates are all accepted. Tags
 with no CSL home are kept under their RIS names in ``extra``.
