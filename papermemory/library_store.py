@@ -115,6 +115,51 @@ def assign_key(
     return key, True
 
 
+_QUALITY_SKIP = {"id", "citation-key", "type"}
+_INTERNAL_EXTRA = {"title_raw", "et_al", "year_raw", "month_raw", "date_raw", "ris_type", "ris_id", "pdf", "file"}
+
+
+def record_quality(csl: dict[str, Any], extra: dict[str, Any]) -> tuple[int, int, int, int]:
+    """How complete a record is: untruncated authors, author count, field count, has abstract."""
+    truncated = "author" in (extra.get("et_al") or [])
+    fields = sum(1 for k, v in csl.items() if k not in _QUALITY_SKIP and v) + sum(
+        1 for k in extra if k not in _INTERNAL_EXTRA and not k.startswith("ris_"))
+    return (0 if truncated else 1, len(csl.get("author") or []), fields, 1 if csl.get("abstract") else 0)
+
+
+def record_variant(
+    conn: sqlite3.Connection, paper_id: str, project_key: str, *, source: str, fmt: str, source_key: str | None,
+    entry_type: str, raw_bibtex: str | None, csl: dict[str, Any], extra: dict[str, Any],
+) -> bool:
+    """Remember this version of the record. Identical re-imports are ignored; returns True when new."""
+    cur = conn.execute(
+        """INSERT OR IGNORE INTO reference_variants(id, paper_id, project_key, source, fmt, source_key, entry_type,
+           raw_bibtex, csl_json, extra_json, meta_sha256, imported_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (new_id("var"), paper_id, project_key or "", source, fmt, source_key, entry_type, raw_bibtex,
+         json.dumps(csl, ensure_ascii=False, sort_keys=True), json.dumps(extra, ensure_ascii=False, sort_keys=True),
+         meta_sha256(csl, extra, entry_type), now_iso()),
+    )
+    return bool(cur.rowcount)
+
+
+def pick_canonical(
+    conn: sqlite3.Connection, paper_id: str, csl: dict[str, Any], extra: dict[str, Any], entry_type: str, *,
+    raw_bibtex: str | None, source: str,
+) -> str:
+    """Store ``csl`` as the canonical record if there is none, the stored one is a thin backfill, or it is more complete.
+
+    Returns 'created', 'kept', or 'replaced'. The version that loses stays in ``reference_variants``.
+    """
+    row = conn.execute("SELECT * FROM reference_meta WHERE paper_id=?", (paper_id,)).fetchone()
+    if row is None:
+        return upsert_reference_meta(conn, paper_id, csl, extra, entry_type, raw_bibtex=raw_bibtex, source=source)
+    old_csl, old_extra = loads(row["csl_json"], {}), loads(row["extra_json"], {})
+    if row["source"] == "backfill" or record_quality(csl, extra) > record_quality(old_csl, old_extra):
+        upsert_reference_meta(conn, paper_id, csl, extra, entry_type, raw_bibtex=raw_bibtex, source=source, replace=True)
+        return "replaced"
+    return "kept"
+
+
 def upsert_reference_meta(
     conn: sqlite3.Connection,
     paper_id: str,
@@ -224,6 +269,7 @@ def merge_library_rows(conn: sqlite3.Connection, source_id: str, target_id: str,
                 "UPDATE bib_key_aliases SET paper_id=?, source='merge' WHERE key=? AND project_key=?",
                 (target_id, alias["key"], alias["project_key"]),
             )
+    conn.execute("UPDATE OR IGNORE reference_variants SET paper_id=? WHERE paper_id=?", (target_id, source_id))
     conn.execute(
         "INSERT OR IGNORE INTO paper_tags(paper_id, tag, added_at) "
         "SELECT ?, tag, added_at FROM paper_tags WHERE paper_id=?", (target_id, source_id),
@@ -232,5 +278,7 @@ def merge_library_rows(conn: sqlite3.Connection, source_id: str, target_id: str,
         "INSERT OR IGNORE INTO collection_papers(collection_id, paper_id, ord, added_at) "
         "SELECT collection_id, ?, ord, added_at FROM collection_papers WHERE paper_id=?", (target_id, source_id),
     )
+    # Notes are paper-scoped observations; they follow the surviving paper.
+    conn.execute("UPDATE observations SET paper_id=? WHERE paper_id=?", (target_id, source_id))
     if not conn.execute("SELECT 1 FROM integrity WHERE paper_id=?", (target_id,)).fetchone():
         conn.execute("UPDATE integrity SET paper_id=? WHERE paper_id=?", (target_id, source_id))

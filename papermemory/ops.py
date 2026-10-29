@@ -41,6 +41,7 @@ EXPORT_TABLES = [
     "observations",
     "lessons",
     "reference_meta",
+    "reference_variants",
     "bib_keys",
     "bib_key_aliases",
     "paper_tags",

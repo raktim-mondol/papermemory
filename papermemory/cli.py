@@ -288,6 +288,103 @@ def cmd_library_note(args: argparse.Namespace) -> int:
         return 2
 
 
+def cmd_library_export(args: argparse.Namespace) -> int:
+    from papermemory.library_export import ExportError, export_library
+
+    store = _store()
+    try:
+        result = export_library(
+            store, fmt=args.format, query=args.query or None, collection=args.collection, project=args.project,
+            cited_only=args.cited_only, everything=args.all, out=args.out, cwd=args.cwd, style=args.style,
+            fields=args.fields, check=args.check, force=args.force, adopt=args.adopt, variant=args.variant,
+        )
+    except ExportError as exc:
+        print(f"library export: {exc.code}: {exc}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"error": exc.code, "message": str(exc), **exc.detail}, indent=2, default=str))
+        return 2
+    for warning in result.get("warnings", []):
+        print(f"warning: {warning}", file=sys.stderr)
+    if args.json:
+        return _emit(result, True)
+    if "text" in result:
+        sys.stdout.write(result["text"])
+        return 0
+    diff = result.get("diff") or {}
+    parts = [f"{k} {len(v)}" for k, v in diff.items() if v]
+    line = f"{result['format']}: {result['count']} entr{'y' if result['count'] == 1 else 'ies'} -> {result['path']} [{result.get('status')}]"
+    if result.get("written"):
+        line += " written"
+    if parts:
+        line += " (" + ", ".join(parts) + ")"
+    if result.get("frozen"):
+        line += f"; froze {result['frozen']} key(s)"
+    for key in result.get("missing_keys", []):
+        line += f"\n  ! cited key not in the library: {key}"
+    return _emit(result, False, line)
+
+
+def cmd_library_dedupe(args: argparse.Namespace) -> int:
+    from papermemory.library_hygiene import find_duplicates
+
+    result = find_duplicates(_store(), limit=args.limit)
+    lines = [f"{result['total_groups']} candidate group(s) among {result['papers_considered']} paper(s)"]
+    for group in result["groups"]:
+        lines.append(f"- similarity {group['strongest']}")
+        for paper in group["papers"]:
+            ids = paper["doi"] or paper["arxiv_id"] or "-"
+            lines.append(f"    {paper['key'] or paper['paper_id']:<28} {paper['year'] or '?'}  {paper['title'][:60]}  [{ids}]")
+    return _emit(result, args.json, "\n".join(lines))
+
+
+def cmd_library_merge(args: argparse.Namespace) -> int:
+    from papermemory.library_hygiene import HygieneError, merge_apply, merge_plan
+
+    store = _store()
+    project = _library_project(args, store)
+    try:
+        if args.apply:
+            result = merge_apply(store, args.keep, args.drop, reason=args.reason or "", prefer=args.prefer, project_id=project)
+        else:
+            result = merge_plan(store, args.keep, args.drop, project_id=project, prefer=args.prefer)
+    except HygieneError as exc:
+        print(f"library merge: {exc.code}: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # structural merge refusals (identity conflict, mismatched documents)
+        print(f"library merge: {getattr(exc, 'code', 'error')}: {exc}", file=sys.stderr)
+        return 2
+    lines = [f"{'merged' if result['applied'] else 'dry run:'} {result['drop']['key']} into {result['keep']['key']}"]
+    for f in result["fields"] + result["reference_fields"]:
+        if f["status"] in ("conflict", "drop_only"):
+            lines.append(f"  {f['field']}: {f['status']} -> {f['winner']}")
+    if result["conflicts"]:
+        lines.append(f"  conflicts: {', '.join(result['conflicts'])} (prefer={result['prefer']})")
+    lines.append("  moves: " + ", ".join(f"{k}={v}" for k, v in result["moves"].items() if v))
+    if not result["applied"]:
+        lines.append("  add --apply --reason ... to merge")
+    for warning in result.get("warnings", []):
+        lines.append(f"  warning: {warning}")
+    return _emit(result, args.json, "\n".join(lines))
+
+
+def cmd_library_doctor(args: argparse.Namespace) -> int:
+    from papermemory.bibkeys import TemplateError
+    from papermemory.library_hygiene import doctor
+
+    try:
+        report = doctor(_store(), template=args.template, cwd=args.cwd)
+    except TemplateError as exc:
+        print(f"library doctor: {exc}", file=sys.stderr)
+        return 2
+    s = report["summary"]
+    lines = [f"{s['papers']} paper(s): {s['errors']} error(s), {s['warnings']} warning(s)" + ("" if s["ok"] else " - needs attention")]
+    for name, count in s["problems"].items():
+        if count:
+            lines.append(f"  {name}: {count}")
+    lines.append(f"  unknown: {s['unknown']['integrity_unchecked']} paper(s) never integrity-checked")
+    return _emit(report, args.json, "\n".join(lines))
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     from papermemory.search import search
 
@@ -952,6 +1049,43 @@ def build_parser() -> argparse.ArgumentParser:
     n = note_sub.add_parser("remove", parents=[shared])
     n.add_argument("note_id")
     n.set_defaults(func=cmd_library_note)
+
+    s = lib_sub.add_parser("export", help="export to BibTeX/BibLaTeX/RIS/CSL-JSON/JSON/CSV or sync a managed project .bib", parents=[shared])
+    s.add_argument("query", nargs="*", help="library filters, e.g. tag:ml year:2020..")
+    s.add_argument("--format", choices=["bibtex", "biblatex", "ris", "csl-json", "json", "csv"], default="bibtex")
+    s.add_argument("--out", help="write here (inside the workspace); omit to print")
+    s.add_argument("--collection")
+    s.add_argument("--project", help="project filter; its own citation keys are used")
+    s.add_argument("--cited-only", metavar="MANUSCRIPT", help="only the papers this manuscript cites")
+    s.add_argument("--all", action="store_true", help="export every paper")
+    s.add_argument("--style", choices=["normalized", "original"], default="normalized")
+    s.add_argument("--fields", choices=["standard", "all"], default="standard")
+    s.add_argument("--variant", choices=["project", "canonical"], default="project",
+                   help="project: a project export uses that project's own imported version of each entry; canonical: the library record")
+    s.add_argument("--check", action="store_true", help="report whether --out is in sync; write nothing")
+    s.add_argument("--force", action="store_true", help="overwrite hand edits (a backup is kept)")
+    s.add_argument("--adopt", action="store_true", help="take over an existing .bib (a backup is kept)")
+    s.add_argument("--cwd", help="the workspace --out must stay inside (default: current directory)")
+    s.set_defaults(func=cmd_library_export)
+
+    s = lib_sub.add_parser("dedupe", help="candidate duplicate groups; nothing is merged", parents=[shared])
+    s.add_argument("--limit", type=int, default=50)
+    s.set_defaults(func=cmd_library_dedupe)
+
+    s = lib_sub.add_parser("merge", help="merge DROP into KEEP: a field-level preview, then --apply --reason", parents=[shared])
+    s.add_argument("keep")
+    s.add_argument("drop")
+    s.add_argument("--prefer", choices=["keep", "drop"], default="keep", help="who wins a conflicting field")
+    s.add_argument("--apply", action="store_true")
+    s.add_argument("--reason")
+    s.add_argument("--project")
+    s.add_argument("--cwd")
+    s.set_defaults(func=cmd_library_merge)
+
+    s = lib_sub.add_parser("doctor", help="library health report (evidence, not a verdict)", parents=[shared])
+    s.add_argument("--template")
+    s.add_argument("--cwd", help="also check collection-bound .bib files in this workspace")
+    s.set_defaults(func=cmd_library_doctor)
 
     s = lib_sub.add_parser("keys", help="citation keys: check, assign, freeze, rekey", parents=[shared])
     keys_sub = s.add_subparsers(dest="keys_cmd", required=True)

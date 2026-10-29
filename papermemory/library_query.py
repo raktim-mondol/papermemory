@@ -264,3 +264,27 @@ def tag_counts(store: Store, query: str | list[str] | Query | None = None) -> li
         args,
     ).fetchall()
     return [{"tag": r["tag"], "papers": r["papers"]} for r in rows]
+
+
+def matching_ids(store: Store, query: str | list[str] | Query | None = None) -> list[str]:
+    """Every paper id matching ``query``, in the order they were added."""
+    q = query if isinstance(query, Query) else parse_query(query)
+    where, args = _where(q)
+    rows = store.conn.execute(
+        f"SELECT p.id FROM papers p LEFT JOIN bib_keys k ON k.paper_id=p.id WHERE {where} ORDER BY p.rowid", args
+    ).fetchall()
+    return [r["id"] for r in rows]
+
+
+def rows_for_ids(store: Store, ids: list[str]) -> list[dict[str, Any]]:
+    """The listing rows (tags, collections, notes, ...) for specific papers."""
+    out: list[dict[str, Any]] = []
+    for start in range(0, len(ids), 400):
+        chunk = ids[start:start + 400]
+        marks = ",".join("?" for _ in chunk)
+        rows = store.conn.execute(
+            f"SELECT k.key AS lib_key, p.* FROM papers p LEFT JOIN bib_keys k ON k.paper_id=p.id WHERE p.id IN ({marks})",
+            chunk,
+        ).fetchall()
+        out.extend(_decorate(store, rows))
+    return out

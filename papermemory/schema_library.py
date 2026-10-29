@@ -21,6 +21,23 @@ LIBRARY_STATEMENTS = [
       meta_sha256 TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL)""",
+    # Every version of a record that was imported, per project. The canonical
+    # record lives in reference_meta; a project's own .bib can still be
+    # reproduced from its variant.
+    """CREATE TABLE IF NOT EXISTS reference_variants (
+      id TEXT PRIMARY KEY,
+      paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+      project_key TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL,
+      fmt TEXT NOT NULL,
+      source_key TEXT,
+      entry_type TEXT NOT NULL,
+      raw_bibtex TEXT,
+      csl_json TEXT NOT NULL,
+      extra_json TEXT NOT NULL DEFAULT '{}',
+      meta_sha256 TEXT NOT NULL,
+      imported_at TEXT NOT NULL,
+      UNIQUE(paper_id, project_key, meta_sha256))""",
     # The library-wide unique citation key of a paper.
     """CREATE TABLE IF NOT EXISTS bib_keys (
       paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
@@ -67,6 +84,7 @@ LIBRARY_STATEMENTS = [
       notice_doi TEXT,
       checked_at TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS idx_bib_aliases_paper ON bib_key_aliases(paper_id)",
+    "CREATE INDEX IF NOT EXISTS idx_variants_paper ON reference_variants(paper_id, project_key)",
     "CREATE INDEX IF NOT EXISTS idx_paper_tags_tag ON paper_tags(tag)",
     "CREATE INDEX IF NOT EXISTS idx_collection_papers_paper ON collection_papers(paper_id)",
 ]
@@ -75,6 +93,7 @@ LIBRARY_SCHEMA = ";\n".join(LIBRARY_STATEMENTS) + ";\n"
 
 LIBRARY_TABLES = [
     "reference_meta",
+    "reference_variants",
     "bib_keys",
     "bib_key_aliases",
     "paper_tags",

@@ -120,6 +120,27 @@ Filters: `tag: collection: project: year:(2021 | 2020..2024 | 2020.. | ..2019) a
 
 Deleting a collection or a tag never deletes a paper. Tags and notes are searched by `papermemory search --kind paper`. All edits are audited (`papermemory log`).
 
+### Export, project `.bib` sync, duplicates, doctor
+
+```bash
+papermemory library export --all                                  # print BibTeX
+papermemory library export tag:ml year:2020.. --format biblatex --out refs/ml.bib --cwd .
+papermemory library export --cited-only thesis --out references.bib --cwd .   # exactly what the manuscript cites
+papermemory library export --collection chapter-1 --format ris --out ch1.ris --cwd .
+papermemory library export --all --out references.bib --cwd . --check          # in_sync | out_of_date | hand_edited | not_managed | missing
+papermemory library dedupe                                        # candidate duplicate groups; nothing is merged
+papermemory library merge keep2020 dup2020                        # field-level preview (add --apply --reason "...")
+papermemory library doctor --cwd .                                # library health: evidence, not a verdict
+```
+
+- **Formats:** `bibtex` (classic types), `biblatex`, `ris`, `csl-json`, `json`, `csv`. Entries are sorted by key with a fixed field order, so exports diff cleanly in git. Values come from the original BibTeX entry when there is one (accents and case-protection braces survive); otherwise from the CSL record, escaped. Unmapped fields and local file paths (`pdf`, `file`) stay out unless `--fields all` (paths never).
+- **Scopes:** a filter, `--collection`, `--project`, `--cited-only MANUSCRIPT` (uses the keys the manuscript actually cites and reports cited keys the library lacks), or `--all`. Nothing is exported by accident.
+- **A project's own version.** The library keeps every imported version of a paper (`reference_variants`) and picks the most complete as canonical. A project export reproduces that project's own entries and keys; `--variant canonical` writes the library record instead.
+- **Managed `.bib`.** Output has a header and begin/end markers. Re-exporting rewrites only the managed block and keeps whatever you put after the `hand-added` marker. A file that is already in sync is not touched. If you edit inside the managed block, export refuses (`hand_edited`) unless `--force`; an existing `.bib` that PaperMemory did not write needs `--adopt`. Both keep a timestamped backup. `--out` must stay inside the workspace (`--cwd`), and other formats never overwrite an existing file without `--force`.
+- **Frozen keys.** Exporting freezes the keys it writes; only `keys rekey` changes them afterwards.
+- **Duplicates.** `dedupe` groups papers by title, year, and first author, recognises a preprint and its published version, and does not flag siblings in a series ("Part one/two"), notices ("Addendum:"), or yearly items ("News from X") as duplicates. `merge` is a dry run until `--apply --reason`; it moves documents, claims, tags, collections, notes, keys, and variants, and fills gaps from the dropped record.
+- **Doctor.** Missing required fields per entry type, unsafe or missing keys, unverified DOIs, duplicate groups, papers flagged retracted or corrected (and whether a manuscript still cites them), and, with `--cwd`, whether each collection-bound `.bib` is in sync. A paper never integrity-checked is reported as unknown, not clean.
+
 ### Citation keys
 
 ```bash

@@ -16,7 +16,7 @@ from papermemory.bibparse import parse_bib
 from papermemory.bibrecord import Record, paper_columns, record_from_bib
 from papermemory.csl_import import parse_csl_json
 from papermemory.db import IdentityConflict, Store
-from papermemory.library_store import add_alias, assign_key, upsert_reference_meta
+from papermemory.library_store import add_alias, assign_key, pick_canonical, record_variant
 from papermemory.ris import parse_ris
 from papermemory.util import dumps, loads, normalize_arxiv, normalize_doi, normalize_title
 
@@ -69,6 +69,20 @@ def _identity(cols: dict[str, Any]) -> tuple[str, str]:
     return "title_year", f"{normalize_title(cols.get('title') or 'Untitled')}|{cols.get('year') or ''}"
 
 
+def _refresh_columns(conn: Any, paper_id: str, cols: dict[str, Any]) -> None:
+    """A more complete record won: bring the list columns along without touching identity or title."""
+    row = conn.execute("SELECT authors_json, venue, abstract FROM papers WHERE id=?", (paper_id,)).fetchone()
+    updates: dict[str, Any] = {}
+    if len(cols["authors"]) > len(loads(row["authors_json"], [])):
+        updates["authors_json"] = dumps(cols["authors"])
+    for column in ("venue", "abstract"):
+        if cols[column] and not row[column]:
+            updates[column] = cols[column]
+    if updates:
+        sets = ", ".join(f"{c}=?" for c in updates)
+        conn.execute(f"UPDATE papers SET {sets} WHERE id=?", (*updates.values(), paper_id))
+
+
 def _import_one(store: Store, record: Record, project_id: str | None, source: str) -> dict[str, Any]:
     conn = store.conn
     cols = paper_columns(record)
@@ -83,11 +97,15 @@ def _import_one(store: Store, record: Record, project_id: str | None, source: st
         kind, value, cols["title"], "caller", fields=fields, project_key=project_id,
         metadata_only=True, commit=False,
     )
-    existing = conn.execute("SELECT source FROM reference_meta WHERE paper_id=?", (paper_id,)).fetchone()
-    meta_state = upsert_reference_meta(
-        conn, paper_id, record.csl, record.extra, record.entry_type, raw_bibtex=record.raw,
-        source=record.fmt, replace=bool(existing and existing["source"] == "backfill"),
+    new_variant = record_variant(
+        conn, paper_id, project_id or "", source=source, fmt=record.fmt, source_key=record.source_key,
+        entry_type=record.entry_type, raw_bibtex=record.raw, csl=record.csl, extra=record.extra,
     )
+    meta_state = pick_canonical(
+        conn, paper_id, record.csl, record.extra, record.entry_type, raw_bibtex=record.raw, source=record.fmt,
+    )
+    if meta_state == "replaced":
+        _refresh_columns(conn, paper_id, cols)
     wanted = record.source_key if usable_source_key(record.source_key) or (
         record.fmt == "bibtex" and record.source_key) else None
     policy = "imported"
@@ -102,6 +120,7 @@ def _import_one(store: Store, record: Record, project_id: str | None, source: st
     result: dict[str, Any] = {
         "source_key": record.source_key, "key": key, "paper_id": paper_id,
         "status": "added" if state == "created" else "merged", "meta": meta_state,
+        "new_variant": new_variant,
     }
     if record.source_key and key != record.source_key:
         # A new paper whose key was taken by a different paper is a collision
