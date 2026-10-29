@@ -156,12 +156,20 @@ def test_project_keys_win_and_collisions_fall_back(tmp_path):
     s.close()
 
 
-def test_missing_keys_block_export(tmp_path):
+def test_export_assigns_missing_keys_but_a_check_never_writes(tmp_path):
     s = Store(tmp_path / "m.db")
-    s.upsert_paper({"title": "No key", "year": 2020})
+    s.upsert_paper({"title": "Quantum widgets", "authors": ["Ann Lee"], "year": 2020, "doi": "10.1/q"})
+    s.conn.execute("DELETE FROM bib_keys")  # simulate a paper that predates the library
+    s.conn.execute("UPDATE papers SET bibtex_key=NULL")
+    s.conn.commit()
     with pytest.raises(ExportError) as exc:
-        export_library(s, everything=True)
+        export_library(s, everything=True, out="x.bib", cwd=str(tmp_path), check=True)
     assert exc.value.code == "missing-keys"
+    assert s.conn.execute("SELECT COUNT(*) FROM bib_keys").fetchone()[0] == 0
+    result = export_library(s, everything=True)
+    assert "@misc{lee2020quantum," in result["text"] or "lee2020quantum" in result["text"]
+    assert any("assigned keys" in w for w in result["warnings"])
+    assert s.conn.execute("SELECT policy FROM bib_keys").fetchone()["policy"] == "generated"
     s.close()
 
 

@@ -36,8 +36,8 @@ def _record_for(store: Store, paper: Any) -> tuple[dict[str, Any], dict[str, Any
     return csl_from_paper_row(paper), extra_from_paper_row(paper)
 
 
-def assign_missing(store: Store, *, template: str | None = None) -> dict[str, Any]:
-    """Give every paper without a library key one, in a deterministic order."""
+def assign_for(store: Store, paper_ids: list[str] | None = None, *, template: str | None = None) -> dict[str, Any]:
+    """Give papers without a library key one, in a deterministic order (all such papers if ``paper_ids`` is None)."""
     tpl = resolve_template(template)
     conn = store.conn
     conn.commit()
@@ -45,11 +45,13 @@ def assign_missing(store: Store, *, template: str | None = None) -> dict[str, An
         """SELECT p.* FROM papers p LEFT JOIN bib_keys k ON k.paper_id=p.id
            WHERE k.paper_id IS NULL ORDER BY p.created_at, p.id"""
     ).fetchall()
+    if paper_ids is not None:
+        wanted = set(paper_ids)
+        rows = [r for r in rows if r["id"] in wanted]
     assigned: list[dict[str, str]] = []
     for paper in rows:
         csl, extra = _record_for(store, paper)
-        wanted = make_key(csl, extra, tpl)
-        key = free_key(conn, wanted, paper["id"])
+        key = free_key(conn, make_key(csl, extra, tpl), paper["id"])
         conn.execute(
             "INSERT INTO bib_keys(paper_id, key, policy, frozen, created_at) VALUES (?,?, 'generated', 0, ?)",
             (paper["id"], key, now_iso()),
@@ -59,6 +61,11 @@ def assign_missing(store: Store, *, template: str | None = None) -> dict[str, An
         assigned.append({"paper_id": paper["id"], "key": key})
     conn.commit()
     return {"template": tpl, "assigned": len(assigned), "sample": assigned[:SAMPLE]}
+
+
+def assign_missing(store: Store, *, template: str | None = None) -> dict[str, Any]:
+    """Give every paper without a key one."""
+    return assign_for(store, None, template=template)
 
 
 def freeze(store: Store, ref: str, label: str, *, project_id: str | None = None) -> dict[str, Any]:

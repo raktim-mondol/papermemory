@@ -54,10 +54,26 @@ def test_key_hygiene():
     assert usable_source_key("Dawood2026") and not usable_source_key("12345") and not usable_source_key(None)
 
 
+def test_new_papers_get_a_key_when_their_metadata_is_good_enough(tmp_path):
+    store = _store(tmp_path)
+    store.upsert_paper({"title": "Same Title", "authors": ["Ann Lee"], "year": 2020, "doi": "10.1/a"})
+    store.upsert_paper({"title": "Untitled", "year": 2020})  # nothing to build a key from yet
+    store.upsert_paper({"title": "Some title", "year": 2020})  # no author, DOI, or arXiv id
+    rows = {r["title"]: r for r in store.conn.execute(
+        "SELECT p.title, k.key, k.policy FROM papers p LEFT JOIN bib_keys k ON k.paper_id=p.id")}
+    assert rows["Same Title"]["key"] == "lee2020same" and rows["Same Title"]["policy"] == "generated"
+    assert rows["Untitled"]["key"] is None and rows["Some title"]["key"] is None
+    assert store.conn.execute("SELECT source FROM reference_meta").fetchone()[0] == "ingest"
+    assert library_keys.assign_missing(store)["assigned"] == 2  # the rest are filled on request
+
+
 def test_assign_missing_is_deterministic_and_unique(tmp_path):
     store = _store(tmp_path)
     for i, doi in enumerate(("10.1/a", "10.1/b", "10.1/c")):
         store.upsert_paper({"title": "Same Title", "authors": ["Ann Lee"], "year": 2020, "doi": doi})
+    store.conn.execute("DELETE FROM bib_keys")  # papers that predate the library
+    store.conn.execute("UPDATE papers SET bibtex_key=NULL")
+    store.conn.commit()
     first = library_keys.assign_missing(store)
     assert first["assigned"] == 3
     keys = sorted(r["key"] for r in store.conn.execute("SELECT key FROM bib_keys"))

@@ -141,6 +141,12 @@ papermemory library doctor --cwd .                                # library heal
 - **Duplicates.** `dedupe` groups papers by title, year, and first author, recognises a preprint and its published version, and does not flag siblings in a series ("Part one/two"), notices ("Addendum:"), or yearly items ("News from X") as duplicates. `merge` is a dry run until `--apply --reason`; it moves documents, claims, tags, collections, notes, keys, and variants, and fills gaps from the dropped record.
 - **Doctor.** Missing required fields per entry type, unsafe or missing keys, unverified DOIs, duplicate groups, papers flagged retracted or corrected (and whether a manuscript still cites them), and, with `--cwd`, whether each collection-bound `.bib` is in sync. A paper never integrity-checked is reported as unknown, not clean.
 
+### MCP
+
+`papermemory mcp` exposes the library as one tool, `papermemory_library`, with an `action` argument (`list get resolve import export tag collection note keys dedupe merge doctor set_integrity`). Reads change nothing; anything hard to undo is a dry run unless `apply` (with a `reason`), `force`, or `adopt` is set. Paths must stay inside the allowed roots, and export paths inside `cwd`.
+
+A new paper gets a library record when it is ingested, and a key as soon as it has enough metadata to build a good one (an author, DOI, or arXiv id, and a real title). Others are keyed on request or on first export.
+
 ### Citation keys
 
 ```bash

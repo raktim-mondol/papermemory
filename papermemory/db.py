@@ -266,6 +266,7 @@ class Store:
         project_key: str | None = None,
         metadata_only: bool = False,
         commit: bool = True,
+        library: bool = True,
     ) -> tuple[str, str]:
         fields = dict(fields or {})
         now = now_iso()
@@ -360,6 +361,10 @@ class Store:
         if project_key:
             self.add_membership(paper_id, project_key)
         self.mut("INGEST", paper_id=paper_id, project_key=project_key, status=state, detail=title[:200])
+        if library and state == "created":
+            from papermemory.library_store import ensure_library_record
+
+            ensure_library_record(self.conn, paper_id)
         if commit:
             self.conn.commit()
         return paper_id, state

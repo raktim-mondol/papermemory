@@ -86,7 +86,7 @@ def select_papers(
 # ---------- keys ----------
 
 
-def export_keys(store: Store, ids: list[str], project: str | None) -> tuple[dict[str, str], list[str]]:
+def export_keys(store: Store, ids: list[str], project: str | None, *, assign: bool = True) -> tuple[dict[str, str], list[str]]:
     """paper id -> the key to write. A project's own key wins; collisions fall back to library keys."""
     conn = store.conn
     chosen: dict[str, str] = {}
@@ -102,7 +102,17 @@ def export_keys(store: Store, ids: list[str], project: str | None) -> tuple[dict
         if paper_id not in lib:
             missing.append(paper_id)
     if missing:
-        raise ExportError("missing-keys", f"{len(missing)} paper(s) have no key; run `library keys assign`", papers=missing[:20])
+        if not assign:
+            raise ExportError("missing-keys", f"{len(missing)} paper(s) have no key; run `library keys assign`", papers=missing[:20])
+        from papermemory.library_keys import assign_for
+
+        assign_for(store, missing)
+        for start in range(0, len(missing), 400):
+            chunk = missing[start:start + 400]
+            marks = ",".join("?" for _ in chunk)
+            for r in conn.execute(f"SELECT paper_id, key FROM bib_keys WHERE paper_id IN ({marks})", chunk):
+                lib[r["paper_id"]] = r["key"]
+        warnings.append(f"assigned keys to {len(missing)} paper(s) that had none")
     alias: dict[str, str] = {}
     if project:
         for start in range(0, len(ids), 400):
@@ -363,7 +373,7 @@ def export_library(
                                    cited_only=cited_only, everything=everything)
     except QueryError as exc:
         raise ExportError("bad-query", str(exc)) from exc
-    keys, warnings = export_keys(store, ids, project)
+    keys, warnings = export_keys(store, ids, project, assign=not check)
     if variant not in ("project", "canonical"):
         raise ExportError("bad-option", "variant: project|canonical")
     text = render(store, ids, keys, fmt, style=style, fields=fields, project=project, variant=variant)

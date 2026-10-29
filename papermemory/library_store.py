@@ -115,6 +115,8 @@ def assign_key(
     return key, True
 
 
+# Records built only from the papers columns; any real import replaces them.
+THIN_SOURCES = {"backfill", "ingest"}
 _QUALITY_SKIP = {"id", "citation-key", "type"}
 _INTERNAL_EXTRA = {"title_raw", "et_al", "year_raw", "month_raw", "date_raw", "ris_type", "ris_id", "pdf", "file"}
 
@@ -154,7 +156,7 @@ def pick_canonical(
     if row is None:
         return upsert_reference_meta(conn, paper_id, csl, extra, entry_type, raw_bibtex=raw_bibtex, source=source)
     old_csl, old_extra = loads(row["csl_json"], {}), loads(row["extra_json"], {})
-    if row["source"] == "backfill" or record_quality(csl, extra) > record_quality(old_csl, old_extra):
+    if row["source"] in THIN_SOURCES or record_quality(csl, extra) > record_quality(old_csl, old_extra):
         upsert_reference_meta(conn, paper_id, csl, extra, entry_type, raw_bibtex=raw_bibtex, source=source, replace=True)
         return "replaced"
     return "kept"
@@ -282,3 +284,30 @@ def merge_library_rows(conn: sqlite3.Connection, source_id: str, target_id: str,
     conn.execute("UPDATE observations SET paper_id=? WHERE paper_id=?", (target_id, source_id))
     if not conn.execute("SELECT 1 FROM integrity WHERE paper_id=?", (target_id,)).fetchone():
         conn.execute("UPDATE integrity SET paper_id=? WHERE paper_id=?", (target_id, source_id))
+
+
+def ensure_library_record(conn: sqlite3.Connection, paper_id: str) -> None:
+    """Give a freshly created paper a library record and, when its metadata is good enough, a key.
+
+    Best effort and silent: a paper with only a filename for a title gets its key later (on export or
+    ``library keys assign``), when the metadata is better. Never raises, so ingest cannot be broken by it.
+    """
+    try:
+        from papermemory.bibkeys import make_key
+
+        row = conn.execute("SELECT * FROM papers WHERE id=?", (paper_id,)).fetchone()
+        if row is None:
+            return
+        csl, extra = csl_from_paper_row(row), extra_from_paper_row(row)
+        upsert_reference_meta(conn, paper_id, csl, extra, "misc", raw_bibtex=None, source="ingest")
+        if conn.execute("SELECT 1 FROM bib_keys WHERE paper_id=?", (paper_id,)).fetchone():
+            return
+        title = (row["title"] or "").strip()
+        has_identity = bool(csl.get("author") or row["doi"] or row["arxiv_id"])
+        if row["bibtex_key"]:
+            assign_key(conn, paper_id, row["bibtex_key"], policy="imported")
+        elif has_identity and title and title.lower() != "untitled":
+            key, _ = assign_key(conn, paper_id, make_key(csl, extra), policy="generated")
+            conn.execute("UPDATE papers SET bibtex_key=? WHERE id=? AND (bibtex_key IS NULL OR bibtex_key='')", (key, paper_id))
+    except Exception:  # pragma: no cover - defensive: ingest must never fail because of the library
+        return

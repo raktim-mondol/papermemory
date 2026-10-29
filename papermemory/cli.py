@@ -385,6 +385,32 @@ def cmd_library_doctor(args: argparse.Namespace) -> int:
     return _emit(report, args.json, "\n".join(lines))
 
 
+def cmd_library_resolve(args: argparse.Namespace) -> int:
+    from papermemory.library_hygiene import HygieneError, resolve_refs
+
+    try:
+        result = resolve_refs(_store(), args.refs, project_id=args.project, include_project_keys=args.project_keys)
+    except HygieneError as exc:
+        print(f"library resolve: {exc.code}: {exc}", file=sys.stderr)
+        return 2
+    text = "\n".join(f"{r['ref']}: " + (f"{r['key']}  {r['title'][:60]}" if r["found"] else "not in the library") for r in result["results"])
+    return _emit(result, args.json, text)
+
+
+def cmd_library_integrity(args: argparse.Namespace) -> int:
+    from papermemory.library_hygiene import set_integrity
+
+    try:
+        items = json.loads(args.items_json)
+        if not isinstance(items, list):
+            raise ValueError("items must be a JSON list")
+    except ValueError as exc:
+        print(f"library integrity: bad --items-json: {exc}", file=sys.stderr)
+        return 2
+    result = set_integrity(_store(), items)
+    return _emit(result, args.json, f"recorded {result['written']}; {len(result['unresolved'])} unresolved, {len(result['rejected'])} rejected")
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     from papermemory.search import search
 
@@ -1086,6 +1112,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--template")
     s.add_argument("--cwd", help="also check collection-bound .bib files in this workspace")
     s.set_defaults(func=cmd_library_doctor)
+
+    s = lib_sub.add_parser("resolve", help="which keys / DOIs / ids are in the library (with --project, that project's keys win)", parents=[shared])
+    s.add_argument("refs", nargs="+")
+    s.add_argument("--project")
+    s.add_argument("--project-keys", action="store_true", help="also list every key the project would use")
+    s.set_defaults(func=cmd_library_resolve)
+
+    s = lib_sub.add_parser("integrity", help="record retraction/correction results from an external check", parents=[shared])
+    isub = s.add_subparsers(dest="integrity_cmd", required=True)
+    i = isub.add_parser("set", parents=[shared])
+    i.add_argument("--items-json", required=True, help='[{"ref": "10.1/x", "status": "retracted", "source": "crossref", "notice_doi": "..."}]')
+    i.set_defaults(func=cmd_library_integrity)
 
     s = lib_sub.add_parser("keys", help="citation keys: check, assign, freeze, rekey", parents=[shared])
     keys_sub = s.add_subparsers(dest="keys_cmd", required=True)

@@ -95,7 +95,7 @@ def _import_one(store: Store, record: Record, project_id: str | None, source: st
     }
     paper_id, state = store.upsert_paper_v2(
         kind, value, cols["title"], "caller", fields=fields, project_key=project_id,
-        metadata_only=True, commit=False,
+        metadata_only=True, commit=False, library=False,
     )
     new_variant = record_variant(
         conn, paper_id, project_id or "", source=source, fmt=record.fmt, source_key=record.source_key,

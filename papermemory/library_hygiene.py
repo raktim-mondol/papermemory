@@ -385,3 +385,73 @@ def doctor(store: Store, *, template: str | None = None, cwd: str | None = None)
                     "bound_bibs": "not checked (pass a workspace to check them)" if not cwd else "checked"},
     }
     return {"summary": summary, "problems": problems}
+
+
+# ---------- integrity results written by the harness, and batch key resolution ----------
+
+INTEGRITY_STATUSES = ("ok", "retracted", "withdrawn", "corrected", "concern", "expression-of-concern", "unknown")
+
+
+def set_integrity(store: Store, items: list[dict[str, Any]], *, project_id: str | None = None) -> dict[str, Any]:
+    """Record retraction / correction status found by an external check.
+
+    ``status`` must be one of ``INTEGRITY_STATUSES``; ``unknown`` means the check could not run and is
+    never treated as clean. Unresolvable references are reported, not guessed at.
+    """
+    written, unresolved, rejected = 0, [], []
+    now = now_iso()
+    for item in items:
+        ref = str(item.get("ref") or "").strip()
+        status = str(item.get("status") or "").strip().lower()
+        if status not in INTEGRITY_STATUSES:
+            rejected.append({"ref": ref, "reason": f"status must be one of {', '.join(INTEGRITY_STATUSES)}"})
+            continue
+        paper_id = resolve_paper_id(store, ref, project_id=project_id) if ref else None
+        if paper_id is None:
+            unresolved.append(ref)
+            continue
+        store.conn.execute(
+            """INSERT INTO integrity(paper_id, status, source, notice_doi, checked_at) VALUES (?,?,?,?,?)
+               ON CONFLICT(paper_id) DO UPDATE SET status=excluded.status, source=excluded.source,
+               notice_doi=excluded.notice_doi, checked_at=excluded.checked_at""",
+            (paper_id, status, (item.get("source") or None), (item.get("notice_doi") or None), now),
+        )
+        written += 1
+    if written:
+        store.mut("LIBRARY_WRITE", detail=f"integrity x{written}")
+    store.conn.commit()
+    return {"written": written, "unresolved": unresolved, "rejected": rejected}
+
+
+def resolve_refs(
+    store: Store, refs: list[str], *, project_id: str | None = None, include_project_keys: bool = False,
+) -> dict[str, Any]:
+    """Which of these keys / DOIs / ids are in the library? ``project_id`` makes a project's own keys win."""
+    out = []
+    for ref in refs:
+        paper_id = resolve_paper_id(store, ref, project_id=project_id) if str(ref).strip() else None
+        if paper_id is None:
+            out.append({"ref": ref, "found": False})
+            continue
+        row = store.conn.execute(
+            "SELECT p.title, p.year, p.doi, k.key FROM papers p LEFT JOIN bib_keys k ON k.paper_id=p.id WHERE p.id=?",
+            (paper_id,),
+        ).fetchone()
+        out.append({"ref": ref, "found": True, "paper_id": paper_id, "key": row["key"], "title": row["title"],
+                    "year": row["year"], "doi": row["doi"]})
+    result: dict[str, Any] = {"results": out, "found": sum(1 for r in out if r["found"]), "total": len(out)}
+    if include_project_keys:
+        if not project_id:
+            raise HygieneError("project-required", "project keys need a project")
+        keys = {}
+        for r in store.conn.execute(
+            """SELECT p.id, COALESCE((SELECT a.key FROM bib_key_aliases a WHERE a.paper_id=p.id AND a.project_key=?
+                       AND a.source LIKE 'import:%' ORDER BY a.first_seen LIMIT 1), k.key) AS key
+               FROM papers p LEFT JOIN bib_keys k ON k.paper_id=p.id
+               WHERE p.project_id=? OR EXISTS(SELECT 1 FROM paper_projects pp WHERE pp.paper_id=p.id AND pp.project_key=?)""",
+            (project_id, project_id, project_id),
+        ):
+            if r["key"]:
+                keys[r["key"]] = r["id"]
+        result["project_keys"] = sorted(keys)
+    return result

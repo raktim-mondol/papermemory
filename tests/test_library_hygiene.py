@@ -160,3 +160,22 @@ def test_cli_dedupe_merge_doctor(tmp_path, monkeypatch, capsys):
     assert cli_main(["library", "merge", "lee2020graph", "lee2020graph2", "--apply", "--reason", "same"]) == 0
     assert cli_main(["library", "doctor"]) == 0
     assert "paper(s)" in capsys.readouterr().out
+
+
+def test_cli_resolve_and_integrity(tmp_path, monkeypatch, capsys):
+    import json as _json
+
+    monkeypatch.setenv("PAPERMEMORY_DB", str(tmp_path / "cli.db"))
+    src = tmp_path / "r.bib"
+    src.write_text(BIB, encoding="utf-8")
+    assert cli_main(["library", "import", str(src), "--project", "thesis"]) == 0
+    capsys.readouterr()
+    assert cli_main(["library", "resolve", "lee2020graph", "10.5555/3295222.3295349", "ghost", "--json"]) == 0
+    result = _json.loads(capsys.readouterr().out)
+    assert [r["found"] for r in result["results"]] == [True, True, False]
+    assert cli_main(["library", "resolve", "x", "--project-keys"]) == 2  # a project is required for project keys
+    items = _json.dumps([{"ref": "10.1/g", "status": "corrected", "source": "crossref"}, {"ref": "ghost", "status": "ok"}])
+    assert cli_main(["library", "integrity", "set", "--items-json", items, "--json"]) == 0
+    out = _json.loads(capsys.readouterr().out)
+    assert out["written"] == 1 and out["unresolved"] == ["ghost"]
+    assert cli_main(["library", "integrity", "set", "--items-json", "not json"]) == 2
