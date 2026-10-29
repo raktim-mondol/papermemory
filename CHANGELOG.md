@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 — reference library
+## 0.3.0 — 2026-10-29 — reference library
 
 Schema 2000 → 2100; run `papermemory migrate` (it needs the database to be idle; take `papermemory backup` first). A fresh database is created at 2100. Older binaries refuse a 2100 database (`schema-too-new`) rather than misread it.
 
@@ -15,6 +15,8 @@ Schema 2000 → 2100; run `papermemory migrate` (it needs the database to be idl
 - Reference library, phase 2 (citation keys): `library keys check|assign|freeze|rekey`. Key template (`{family}{year}{titleword}` default; `{doi}` and `{arxiv}` tokens; `PAPERMEMORY_KEY_TEMPLATE`), BibTeX-safe cleanup, DOI/arXiv fallback for records with no author or year. Keys are set once; `freeze` records that a key is relied on; `rekey` is a dry run unless `--apply` with a reason, lists the manuscripts that cite the old key, and keeps it as a library-wide alias that `cite-check` resolves. New audit ops `KEY_FREEZE` and `KEY_RENAME`.
 - Reference library, phase 3 (organisation and query): tags, collections (one level of nesting, optional project and `.bib` binding, ordered), per-paper notes (paper-scoped observations; edits keep the old text), a filter syntax with an unknown-field error, and `library list` with keyset paging, sorting, and `total_count`. Tags and notes are included in paper search. `merge_papers` keeps tags and collection membership. New CLI: `library list|tag|collection|note`.
 - Reference library, phase 4 (export and hygiene): `library export` to BibTeX, BibLaTeX, RIS, CSL-JSON, JSON, and CSV with scopes (filter, collection, project, cited-only), deterministic output, and a managed project `.bib` (markers, hash, hand-added section preserved, refusal on hand edits, `--adopt`, `--check`, backups, workspace-confined paths, keys frozen on export). `library dedupe`, `library merge` (field-level preview; `--apply --reason`), `library doctor`. New table `reference_variants`: every imported version is kept, the most complete becomes canonical, and a project export reproduces that project's own entries. `merge_papers` now also moves notes and variants.
+- `PAPERMEMORY_HIDE_TOOLS` lets a host hide an MCP tool (the Academic Harness plugin hides `papermemory_library` in favour of its workspace-aware `reference_library`). `papermemory backup` now works on a store that still needs migrating.
+- The README is reorganised around what you want to do, with six diagrams (overview, import flow, data model, key lifecycle, managed `.bib`, hosts) rendered with Pele from the Mermaid sources in `docs/diagrams/` (`node scripts/build-diagrams.mjs`).
 - Integration (phase 5): MCP tool `papermemory_library` (15th tool). New papers get a library record and, when their metadata is good enough, a key at ingest. Export assigns keys to papers that have none (a `--check` never writes). `library resolve` (which keys/DOIs are in the library, with a project's own keys) and `library integrity set` (retraction results from an external check). Version 0.3.0.
 
 ## 0.2.1 — 2026-10-22
