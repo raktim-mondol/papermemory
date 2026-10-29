@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — 2026-10-29
+
+- **Fix:** exporting a collection that is bound to a `.bib` as CSL-JSON, RIS, JSON, or CSV no longer tries to write into that `.bib`. The collection's default output file now applies only to BibTeX and BibLaTeX; other formats are returned inline unless `--out` is given. (Found while testing the Academic Harness plugin, whose `citation` tool reads the library as CSL-JSON.)
+
 ## 0.3.0 — 2026-10-29 — reference library
 
 Schema 2000 → 2100; run `papermemory migrate` (it needs the database to be idle; take `papermemory backup` first). A fresh database is created at 2100. Older binaries refuse a 2100 database (`schema-too-new`) rather than misread it.
