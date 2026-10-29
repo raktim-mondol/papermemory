@@ -348,3 +348,23 @@ def test_300_file_ingest_is_deterministic(tmp_path):
         "SELECT COUNT(*), SUM(byte_start), SUM(byte_end), SUM(char_start), SUM(char_end) FROM chunks"
     ).fetchone()) == fingerprint
     store.close()
+
+
+def test_backup_works_on_a_store_that_still_needs_migrating(tmp_path, monkeypatch, capsys):
+    from papermemory.cli import main as cli_main
+
+    path = tmp_path / "old.db"
+    _make_v1_db(path)
+    store = Store.__new__(Store)
+    store._connect_raw(path)
+    from papermemory.migrations import migrate_2000
+
+    migrate_2000(store)  # now at schema 2000: opening it normally asks for `migrate`
+    store.close()
+    monkeypatch.setenv("PAPERMEMORY_DB", str(path))
+    assert cli_main(["init"]) == 1  # migration-required
+    capsys.readouterr()
+    assert cli_main(["backup", "--json", "--out", str(tmp_path / "bk")]) == 0
+    assert (tmp_path / "bk" / "papermemory.db").exists()
+    assert cli_main(["migrate", "--json"]) == 0
+    assert cli_main(["init", "--json"]) == 0

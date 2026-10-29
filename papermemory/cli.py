@@ -675,7 +675,12 @@ def cmd_migrate(args: argparse.Namespace) -> int:
 def cmd_backup(args: argparse.Namespace) -> int:
     from papermemory.ops import backup
 
-    result = backup(_store(), Path(args.out) if args.out else None)
+    # A backup must work on a store that still needs migrating: it is the step before `migrate`.
+    store = Store.connect_for_migration(db_path())
+    try:
+        result = backup(store, Path(args.out) if args.out else None)
+    finally:
+        store.close()
     return _emit(result, args.json, f"backup: {result['path']} ({result['papers']} papers)")
 
 
